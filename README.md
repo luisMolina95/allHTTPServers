@@ -1,2 +1,2 @@
 # allHTTPServers
-A collection of HTTP server implementations in various languages.
+A collection of (non-blocking) HTTP server implementations in various languages.
