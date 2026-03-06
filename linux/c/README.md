@@ -1,0 +1,1 @@
+https://sourceware.org/glibc/manual/2.43/pdf/libc.pdf#page=502
