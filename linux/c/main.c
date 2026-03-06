@@ -18,6 +18,7 @@ int main()
     // (not necessarily always a file; it could be just in RAM, for example). In this case, the FD is the ID of the socket.
     // If it fails, it returns -1 and sets errno
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    printf("FD - Socket ID: %i\n", sock);
     if (sock < 0)
     {
         perror("socket");
