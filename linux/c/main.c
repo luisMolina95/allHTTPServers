@@ -1,11 +1,29 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/un.h>
 #include <stddef.h>
 #include <string.h>
+#include <fcntl.h>
+#include <arpa/inet.h>
 
+
+const char buffer[1024] = {0};
+
+void print_sockaddr_in(struct sockaddr_in *sa)
+{
+    char ip_buffer[INET_ADDRSTRLEN];
+    // Convert the IP address from network to presentation format
+    inet_ntop(AF_INET, &(sa->sin_addr), ip_buffer, INET_ADDRSTRLEN);
+
+    // Convert the port number from network to host byte order
+    unsigned short port = ntohs(sa->sin_port);
+
+    // Print the results
+    printf("Address: %s, Port: %u\n", ip_buffer, port);
+}
 int main()
 {
     // 1. Create Socket
@@ -27,6 +45,7 @@ int main()
         perror("socket");
         exit(EXIT_FAILURE);
     }
+
     // 2. Bind Socket
     // Now we need to assign an address to our socket (binding).
     // The bind function runs the syscalls to bind a socket to an address.
@@ -42,8 +61,9 @@ int main()
     //                          All of them "inherit" from struct sockaddr. All of them are 16 bytes. Don't get distracted by this; they are like overloading the bind function
     //                          with the __SOCKADDR_COMMON macro and (struct sockaddr *) casting. I don't fully get it, but it does not matter right now.
     //                          The port is a number from 0 to 65,535 that distinguishes the socket on a machine. It kind of feels off, because you already have an FD distinguishing the socket,
-    //                          and another ID sounds redundant. I still don't totally get the abstraction here.
-    //                          But anyway, the port is the actual ID of the socket you are going to use online, not just internally in the computer like the FD. It's one-to-one: one socket, one port.
+    //                          and another ID sounds redundant (Forget I mentioned this, I got the point of FDs now, a FD is more like a kernel opening a tunel for I/O data, then we use this tunel for whatever).
+    //                          , the port is the actual ID of the socket you are going to use online, not just internally in the computer like the FD, we use this only to listen incoming connections, not reading not writing.
+    //                          It's one-to-one: one socket, one port.
     // socklen (sizeof(name)) : It's C, so we need to tell it the size of the structure so it knows when to stop.
 
     struct sockaddr_in name = {
@@ -58,5 +78,38 @@ int main()
         perror("bind");
         exit(EXIT_FAILURE);
     }
+    // 3. Listen Socket
+    // Now we need to activate the socket and set the queue limit.
+    // The listen function runs the syscalls to reserve space for the queue and sets the socket to active.
+    // This automatically sends the handshake to all on the queue limit.
+    // listen(sock, queue)
+    // sock (sock): FD of the socket
+    // queue (1)  : queue limit + 1, max connection is 4096 (SOMAXCONN 4096), Max n fully-handshaked connections
+    //              This is kind of wierd, clients do not receve a connection refused when overflowing, It jsut silently ignores them
+    //              The only thing i noticed Is that the overflown connections dont get an 3way handshake
+    const int listening = listen(sock, 1);
+    printf("listening: %i\n", listening);
+    if (listening < 0)
+    {
+        perror("listen");
+        exit(EXIT_FAILURE);
+    }
+
+    for (;;)
+    {
+        struct sockaddr_in clientName = {0};
+        socklen_t size = sizeof clientName;
+        int accepting = accept(sock, (struct sockaddr *)&clientName, &size);
+
+        print_sockaddr_in(&clientName);
+
+        if (accepting < 0)
+        {
+            perror("accept");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    printf("buffer: %s...\n", buffer);
     return 0;
 }
