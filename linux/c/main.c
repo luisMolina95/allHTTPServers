@@ -1,16 +1,12 @@
 #include <sys/socket.h>
-#include <netinet/ip.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/un.h>
-#include <stddef.h>
 #include <string.h>
-#include <fcntl.h>
-#include <arpa/inet.h>
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
+#include <arpa/inet.h>
 
 #define PORT 8080
 #define BUFFER_SIZE 16384
