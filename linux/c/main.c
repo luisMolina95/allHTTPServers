@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <signal.h>
+#include <errno.h>
 
 #define PORT 8080
 #define BUFFER_SIZE 16384
@@ -27,7 +28,7 @@ void cleanup(int sig)
     exit(EXIT_SUCCESS);
 }
 
-void print_sockaddr_in(struct sockaddr_in *sa)
+void printAddr(struct sockaddr_in *sa)
 {
     char ip_buffer[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &(sa->sin_addr), ip_buffer, INET_ADDRSTRLEN);
@@ -137,7 +138,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    FILE *archivo = {0};
+    FILE *file = {0};
     while (1)
     {
         struct sockaddr_in clientName = {0};
@@ -152,7 +153,7 @@ int main()
         clientFD = accept(sock, (struct sockaddr *)&clientName, &size);
         printf("clientFD: %i\n", clientFD);
 
-        print_sockaddr_in(&clientName);
+        printAddr(&clientName);
         if (clientFD < 0)
         {
             perror("accept");
@@ -178,9 +179,51 @@ int main()
         snprintf(fullPath, sizeof(fullPath), "./files%s", path);
         printf("fullPath:\n%s\n", fullPath);
 
+        file = fopen(fullPath, "rb");
+        if (file == NULL)
+        {
+
+            if (errno == ENOENT)
+            {
+                write(clientFD, "No such file or directory.\n", 27);
+            }
+            perror("fopen");
+            exit(EXIT_FAILURE);
+        }
+
+        fseek(file, 0, SEEK_END);             // move to end
+        unsigned long fileSize = ftell(file); // tell position = file size
+        rewind(file);
+
+        char header[512];
+        snprintf(header, sizeof(header),
+                 "HTTP/1.1 200 OK\r\n"
+                 "Content-Length: %lu\r\n"
+                 "\r\n",
+                 fileSize);
+        write(clientFD, header, strlen(header));
+
+        int fileReading = 0;
+
+        do
+        {
+
+            fileReading = fread(buffer, 1, BUFFER_SIZE, file);
+
+            printf("fileReading: %i\n", fileReading);
+            printf("buffer chunck: %.*s\n", 5, buffer);
+
+            if (fileReading > 0)
+            {
+                write(clientFD, buffer, fileReading);
+            }
+
+        } while (fileReading > 0);
+
+        fclose(file);
+
         shutdown(clientFD, SHUT_RDWR);
         close(clientFD);
-        break;
     }
 
     shutdown(sock, SHUT_RDWR);
