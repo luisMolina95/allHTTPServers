@@ -9,8 +9,23 @@
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <signal.h>
 
-char buffer[1024] = {0};
+#define PORT 8080
+#define BUFFER_SIZE 16384
+
+char buffer[BUFFER_SIZE] = {0};
+int clientFD = 0;
+int sock = 0;
+
+void cleanup(int sig)
+{
+    shutdown(clientFD, SHUT_RDWR);
+    close(clientFD);
+    shutdown(sock, SHUT_RDWR);
+    close(sock);
+    exit(EXIT_SUCCESS);
+}
 
 void print_sockaddr_in(struct sockaddr_in *sa)
 {
@@ -19,8 +34,32 @@ void print_sockaddr_in(struct sockaddr_in *sa)
     unsigned short port = ntohs(sa->sin_port);
     printf("Family: %i, Address: %s, Port: %u\n", sa->sin_family, ip_buffer, port);
 }
+
+// Unused function, I was testing how would I read a Huge Header with a tiny buffer
+void *read_header(int clientFD)
+{
+    void *header = NULL;
+    void *headerTemp = NULL;
+    unsigned int headerSize = 0;
+    int reading = 0;
+
+    do
+    {
+        reading = read(clientFD, buffer, BUFFER_SIZE);
+        header = malloc(headerSize + reading);
+        memcpy(header, headerTemp, headerSize);
+        memcpy((char *)header + headerSize, buffer, reading);
+        headerSize += reading;
+        free(headerTemp);
+        headerTemp = header;
+    } while (!strstr(header, "\r\n\r\n"));
+
+    return header;
+}
+
 int main()
 {
+    signal(SIGINT, cleanup);
     // 1. Create Socket
     // socket fn runs the syscalls to create a socket
     // socket(domain, type, protocol)
@@ -33,7 +72,15 @@ int main()
     // socket fn returns the File Descriptor (an integer number). Despite the name, FD refers to the ID of a resource where data is being read and written (traveling)
     // (not necessarily always a file; it could be just in RAM, for example). In this case, the FD is the ID of the socket.
     // If it fails, it returns -1 and sets errno
-    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    int opt = 1;
+    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
+    {
+        perror("setsockopt");
+        exit(EXIT_FAILURE);
+    }
+
     printf("FD - Socket ID: %i\n", sock);
     if (sock < 0)
     {
@@ -62,7 +109,7 @@ int main()
 
     struct sockaddr_in name = {
         .sin_family = AF_INET,
-        .sin_port = htons(8080),
+        .sin_port = htons(PORT),
         .sin_addr = {.s_addr = htonl(INADDR_ANY)}};
 
     int binding = bind(sock, (struct sockaddr *)&name, sizeof(name));
@@ -90,9 +137,9 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    for (;;)
+    FILE *archivo = {0};
+    while (1)
     {
-        printf("START:1 \n");
         struct sockaddr_in clientName = {0};
         socklen_t size = sizeof clientName;
         // 3. Accept Connection
@@ -102,7 +149,7 @@ int main()
         // socketAddress(clientName): The structure where accept is going to save the data of the client
         // size(size): The size of the client address, it's a pointer because the size can change if smaller
         // Returns a brand new FD separate from the listening socket to handle the connection betwwen the client and the server, we use this one for read and write
-        int clientFD = accept(sock, (struct sockaddr *)&clientName, &size);
+        clientFD = accept(sock, (struct sockaddr *)&clientName, &size);
         printf("clientFD: %i\n", clientFD);
 
         print_sockaddr_in(&clientName);
@@ -112,33 +159,31 @@ int main()
             exit(EXIT_FAILURE);
         }
 
-        void *readBuff = (void *)buffer;
-        
-        for (;;)
+        // 4. Read data
+        // Has no timeout by default, returns how much it was read, if all is read it waits for new data or until the client closes the connection
+        // We are going to keep this simple, just a single read so we can get the path. No memoery allocation.
+        int reading = read(clientFD, buffer, BUFFER_SIZE);
+        if (reading < 0)
         {
-            printf("START:1:2 \n");
-            int reading = read(clientFD, readBuff, 10);
-            printf("reading: %i\n", reading);
-            printf("buffer: %s\n", buffer);
-
-            if (reading < 0)
-            {
-                perror("read");
-                exit(EXIT_FAILURE);
-            }
-            if (strstr(buffer, "\r\n\r\n"))
-            {
-                break;
-            }
-            readBuff = readBuff + reading;
-            printf("END:1:1 \n");
+            perror("read");
+            exit(EXIT_FAILURE);
         }
+        printf("buffer:\n%s\n", buffer);
+
+        char path[1024];
+        sscanf(buffer, "%*s %s", path);
+        printf("path:\n%s\n", path);
+
+        char fullPath[1032];
+        snprintf(fullPath, sizeof(fullPath), "./files%s", path);
+        printf("fullPath:\n%s\n", fullPath);
+
+        shutdown(clientFD, SHUT_RDWR);
         close(clientFD);
-        close(sock);
-        printf("END:1 \n");
         break;
     }
 
-    printf("DONE!\n");
+    shutdown(sock, SHUT_RDWR);
+    close(sock);
     return 0;
 }
