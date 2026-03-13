@@ -187,8 +187,8 @@ int main()
             exit(EXIT_FAILURE);
         }
 
-        fseek(file, 0, SEEK_END);             // move to end
-        unsigned long fileSize = ftell(file); // tell position = file size
+        fseek(file, 0, SEEK_END);
+        unsigned long fileSize = ftell(file);
         rewind(file);
 
         char header[512];
