@@ -168,7 +168,7 @@ int main()
         printf("buffer:\n%s\n", buffer);
 
         char path[1024];
-        sscanf(buffer, "%*s %s", path);
+        sscanf(buffer, "%*s %1023s", path);
         printf("path:\n%s\n", path);
 
         char fullPath[1032];
