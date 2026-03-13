@@ -58,7 +58,6 @@ int make_socket(uint16_t port)
 
 int main(void)
 {
-    extern int make_socket(uint16_t port);
     int sock;
     fd_set active_fd_set, read_fd_set;
     int i;
