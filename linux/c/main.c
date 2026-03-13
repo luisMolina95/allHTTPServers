@@ -208,11 +208,7 @@ int main()
 
             printf("fileReading: %i\n", fileReading);
             printf("buffer chunck: %.*s\n", 5, buffer);
-
-            if (fileReading > 0)
-            {
-                write(clientFD, buffer, fileReading);
-            }
+            write(clientFD, buffer, fileReading);
 
         } while (fileReading > 0);
 
