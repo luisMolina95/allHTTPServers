@@ -173,18 +173,21 @@ int main()
 
         char fullPath[1032];
         snprintf(fullPath, sizeof(fullPath), "./files%s", path);
-        printf("fullPath:\n%s\n", fullPath);
+        printf("fullPath:%s\n", fullPath);
 
         file = fopen(fullPath, "rb");
+        printf("file: %p\n", file);
         if (file == NULL)
         {
 
             if (errno == ENOENT)
             {
-                write(clientFD, "No such file or directory.\n", 27);
+                write(clientFD, "No such file or directory.", 26);
             }
             perror("fopen");
-            exit(EXIT_FAILURE);
+            shutdown(clientFD, SHUT_RDWR);
+            close(clientFD);
+            continue;
         }
 
         fseek(file, 0, SEEK_END);
@@ -207,7 +210,15 @@ int main()
             fileReading = fread(buffer, 1, BUFFER_SIZE, file);
 
             printf("fileReading: %i\n", fileReading);
-            printf("buffer chunck: %.*s\n", 5, buffer);
+
+            printf("buffer chunck: ");
+            for (size_t i = 0; i < 5; i++)
+            {
+                printf("%u,", (unsigned char)buffer[i]);
+            }
+            printf("...\n");
+            getchar();
+
             write(clientFD, buffer, fileReading);
 
         } while (fileReading > 0);
