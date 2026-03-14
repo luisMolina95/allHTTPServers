@@ -1,4 +1,4 @@
-.PHONY: all, clean
+.PHONY: all clean run
 
 all: http.out
 
@@ -9,4 +9,4 @@ run: http.out
 	./http.out
 
 clean:
-	rm http.out
+	rm -f http.out
