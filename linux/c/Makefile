@@ -1,12 +1,14 @@
 .PHONY: all clean run
 
-all: http.out
+FILE ?= main
 
-http.out: main.c
-	gcc main.c -o http.out
+all: $(FILE).out
 
-run: http.out
-	./http.out
+$(FILE).out: $(FILE).c
+	gcc $(FILE).c -o $(FILE).out
+
+run: $(FILE).out
+	./$(FILE).out
 
 clean:
-	rm -f http.out
+	rm -f $(FILE).out
