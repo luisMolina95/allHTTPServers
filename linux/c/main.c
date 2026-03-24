@@ -226,6 +226,7 @@ int main()
                 }
             }
 
+            // Read File
             int fileRead = fread(buffer, 1, BUFFER_SIZE - 1, file);
             if (fileRead < 0)
             {
@@ -233,6 +234,8 @@ int main()
                 exit(EXIT_FAILURE);
             }
 
+
+            // Close connection when done
             if (fileRead == 0)
             {
                 if (epoll_ctl(epfd, EPOLL_CTL_DEL, event.data.fd, NULL) < 0)
@@ -249,9 +252,12 @@ int main()
                 printf("client closed(%d)\n", event.data.fd);
             }
 
+            // Write a single one chuck per EPOLLOUT
+            // No draining for EAGAIN, just for simplicity
             int wrote = 0;
+            // We need this while to write the whole chuck
+            // Sometime write returns partial reads
             while (wrote < fileRead)
-
             {
                 int writing = write(event.data.fd, buffer + wrote, fileRead - wrote);
                 if (writing < 0)
