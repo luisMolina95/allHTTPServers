@@ -1,122 +1,421 @@
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
 #include <netinet/in.h>
 #include <fcntl.h>
-#include <errno.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <sys/epoll.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <signal.h>
 
-#define QUEUE_SIZE 10
+#define SINGLE_EVENT 1
+#define INFTIM -1
+#define PORT 8080
 
-int queue[QUEUE_SIZE] = {0};
-int count = 0;
+#define BUFFER_SIZE 16384
+char buffer[BUFFER_SIZE] = {0};
+int r = 0;
+char path[1024] = {0};
+char fullPath[1032] = {0};
+char header[512] = {0};
+FILE *file = {0};
+int total=0;
 
-void queueAdd(int value)
+void print_bits(uint32_t mask)
 {
-    if (count == QUEUE_SIZE)
+    printf("0x%08x | ", mask);
+    for (int i = 31; i >= 0; i--)
     {
-        printf("Queue full!\n");
-        exit(1);
+        printf("%d", (mask >> i) & 1);
+        if (i % 8 == 0)
+            printf(" "); // optional grouping
     }
-    queue[count] = value;
-    count++;
-}
-
-void queueRemove(int index)
-{
-    if (count == 0)
-    {
-        return;
-    }
-    for (int i = index; i < count; i++)
-    {
-        queue[i] = queue[i + 1];
-    }
-    count = count - 1;
-}
-
-void printQueue()
-{
-    printf("Queue: [");
-    if (count > 0)
-    {
-        printf("%i", queue[0]);
-    }
-    for (int i = 1; i < count; i++)
-    {
-        printf(",%i", queue[i]);
-    }
-    printf("]\n");
+    printf("\n");
 }
 
 int main()
 {
-    int server = socket(AF_INET, SOCK_STREAM, 0);
-    int serverFlags = fcntl(server, F_GETFL, 0);
-    fcntl(server, F_SETFL, serverFlags | O_NONBLOCK);
-
-    int opt = 1;
-    setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(8080);
-    addr.sin_addr.s_addr = INADDR_ANY;
-
-    bind(server, (struct sockaddr *)&addr, sizeof(addr));
-    listen(server, 1);
-
-    char buffer[4096];
-
-    while (1)
+    signal(SIGPIPE, SIG_IGN);
+    int server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (server < 0)
     {
-        int client = accept(server, NULL, NULL);
-        if (client > 0)
-        {
-            int clientFlags = fcntl(client, F_GETFL, 0);
-            fcntl(client, F_SETFL, clientFlags | O_NONBLOCK);
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
 
-            printf("accept: %i \n", client);
-            queueAdd(client);
+    // Set Server Socket to Resusable
+    int opt = 1;
+    if (setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
+    {
+        perror("setsockopt");
+        exit(EXIT_FAILURE);
+    }
+
+    // Set Server Socket FD to Non-Blocking
+    int serverFlags = fcntl(server, F_GETFL, 0);
+    if (serverFlags < 0)
+    {
+        perror("fcntl:F_GETFL");
+        exit(EXIT_FAILURE);
+    }
+    if (fcntl(server, F_SETFL, serverFlags | O_NONBLOCK) < 0)
+    {
+        perror("fcntl:F_SETFL");
+        exit(EXIT_FAILURE);
+    }
+
+    // Bind Socket to all Network Devices Port 8080
+    struct sockaddr_in address = {0};
+    address.sin_family = AF_INET;
+    address.sin_port = htons(PORT);
+    address.sin_addr.s_addr = INADDR_ANY;
+    bind(server, (struct sockaddr *)&address, sizeof(address));
+
+    // Listen to incoming connections
+    if (listen(server, 1))
+    {
+        perror("listen");
+        exit(EXIT_FAILURE);
+    }
+
+    // Create Event Poll
+    int epfd = epoll_create1(EPOLL_CLOEXEC);
+    if (epfd < 0)
+    {
+        perror("epoll_create1");
+        exit(EXIT_FAILURE);
+    }
+
+    // ADD Server Socket FD to epoll Set
+    struct epoll_event event = {0};
+    event.events = EPOLLIN;
+    event.data.fd = server;
+    print_bits(event.events);
+    int addServer = epoll_ctl(epfd, EPOLL_CTL_ADD, server, &event);
+    if (addServer < 0)
+    {
+        perror("epoll_ctl:EPOLL_CTL_ADD:EPOLLIN");
+        exit(EXIT_FAILURE);
+    }
+
+    for (;;)
+    {
+        // Poll for ready events (Blocks)
+        // n: Number of ready events
+        printf("waiting(%d)...\n", total);
+        int n = epoll_wait(epfd, &event, SINGLE_EVENT, INFTIM);
+        print_bits(event.events);
+        printf("n: %d\n", n);
+        if (n < 0)
+        {
+            perror("epoll_wait");
+            exit(EXIT_FAILURE);
         }
-        else if (errno != EAGAIN)
+
+        if (event.events & EPOLLIN)
         {
-            perror("accept");
-        }
-
-        for (int i = 0; i < count; i++)
-        {
-
-            int c = queue[i];
-
-            int n = read(c, buffer, sizeof(buffer));
-            if (n < 0)
+            if (event.data.fd == server)
             {
-                if (errno != EAGAIN)
+                // Acept new connection
+                int client = accept(server, NULL, NULL);
+                if (client < 0)
                 {
-                    perror("read");
-                    close(c);
-                    queueRemove(i);
-                    i--;
-                    printQueue();
+                    perror("accept");
+                    exit(EXIT_FAILURE);
                 }
-            }
-            else if (n == 0)
-            {
 
-                close(c);
-                queueRemove(i);
-                i--;
-                printf("Close client: %i\n", c);
-                printQueue();
+                // Set Client FD to Non-Blocking
+                int clientFlags = fcntl(client, F_GETFL, 0);
+                fcntl(client, F_SETFL, clientFlags | O_NONBLOCK);
+
+                // Add Client FD to the set
+                // Only notify when stage changes to readable
+                event.events = EPOLLIN | EPOLLET;
+                event.data.fd = client;
+                int addClient = epoll_ctl(epfd, EPOLL_CTL_ADD, client, &event);
+                if (addClient < 0)
+                {
+                    perror("epoll_ctl:EPOLL_CTL_ADD:EPOLLIN | EPOLLET");
+                    exit(EXIT_FAILURE);
+                }
+
+                printf("client connected(%d)\n", client);
             }
             else
             {
+                // Read request
+                printf("read %d\n", event.data.fd);
+                r = read(event.data.fd, buffer, BUFFER_SIZE);
+                if (r < 0)
+                {
+                    perror("read");
+                    printf("errno(%d)\n", errno);
+                    exit(EXIT_FAILURE);
+                }
+                printf("buffer(%d): %.*s\n", r, r, buffer);
 
-                printQueue();
-                printf("Client: %i Read: %i Buffer: %.*s\n", c, n, n, buffer);
-                write(c, buffer, n);
+                // Parse Path from HTTP request
+                sscanf(buffer, "%*s %1023s", path);
+                printf("path:\n%s\n", path);
+
+                // Build full path
+                snprintf(fullPath, sizeof(fullPath), "./files%s", path);
+                printf("fullPath:%s\n", fullPath);
+                printf("!!!!!!!!!!!!!!!\n");
+
+                // Set client to write event
+                event.events = EPOLLOUT;
+                printf("!!!!!!!!!!!!!!!\n");
+                int modClient = epoll_ctl(epfd, EPOLL_CTL_MOD, event.data.fd, &event);
+                printf("!!!!!!!!!!!!!!!\n");
+                if (modClient < 0)
+                {
+                    perror("epoll_ctl:EPOLL_CTL_MOD:EPOLLOUT | EPOLLET");
+                    exit(EXIT_FAILURE);
+                }
+                printf("!!!!!!!!!!!!!!!\n");
+            }
+        }
+
+        if (event.events & EPOLLOUT)
+        {
+            int fileReading = 0;
+
+            if (file != NULL)
+            {
+
+                int fileReading = 0;
+                int writing = 0;
+                do
+                {
+
+                    fileReading = fread(buffer, 1, BUFFER_SIZE - 1, file);
+                    if (fileReading < 0)
+                    {
+                        perror("fread");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    printf("fileReading: %i\n", fileReading);
+                    printf("buffer chunck: ");
+                    for (size_t i = 0; i < 5; i++)
+                    {
+                        printf("%u,", (unsigned char)buffer[i]);
+                    }
+                    printf("...\n");
+
+                    printf("writing...\n");
+                    writing = write(event.data.fd, buffer, fileReading);
+                    total = writing + total;
+                    printf("!writing: %d\n", writing);
+
+                    if (writing == 0)
+                    {
+                        if (epoll_ctl(epfd, EPOLL_CTL_DEL, event.data.fd, NULL) < 0)
+                        {
+
+                            perror("epoll_ctl:EPOLL_CTL_DEL");
+                            printf("errno(%d)\n", errno);
+                            exit(EXIT_FAILURE);
+                        }
+                        shutdown(event.data.fd, SHUT_RDWR);
+                        close(event.data.fd);
+                        fclose(file);
+                        file = NULL;
+                        printf("client closed(%d)\n", event.data.fd);
+                        break;
+                    }
+
+                    if (writing < 0)
+                    {
+                        if (errno == ECONNRESET || errno == EBADF || errno == EPIPE)
+                        {
+                            if (epoll_ctl(epfd, EPOLL_CTL_DEL, event.data.fd, NULL) < 0)
+                            {
+                                if (errno != EBADF)
+                                {
+                                    perror("epoll_ctl:EPOLL_CTL_DEL");
+                                    printf("errno(%d)\n", errno);
+                                    exit(EXIT_FAILURE);
+                                }
+                            }
+                            shutdown(event.data.fd, SHUT_RDWR);
+                            close(event.data.fd);
+                            fclose(file);
+                            printf("client closed(%d)\n", event.data.fd);
+                            break;
+                        }
+                        else if (errno == EAGAIN)
+                        {
+                            break;
+                        }
+                        else
+                        {
+                            perror("write");
+                            printf("errno(%d)\n", errno);
+                            exit(EXIT_FAILURE);
+                        }
+                    }
+                } while (fileReading > 0);
+
+                if (fileReading == 0 && writing != 0)
+                {
+                    if (epoll_ctl(epfd, EPOLL_CTL_DEL, event.data.fd, NULL) < 0)
+                    {
+
+                        perror("epoll_ctl:EPOLL_CTL_DEL");
+                        printf("errno(%d)\n", errno);
+                        exit(EXIT_FAILURE);
+                    }
+                    shutdown(event.data.fd, SHUT_RDWR);
+                    close(event.data.fd);
+                    fclose(file);
+                    printf("client closed(%d)\n", event.data.fd);
+                }
+            }
+            else
+            {
+                file = fopen(fullPath, "rb");
+                printf("file: %p\n", file);
+                if (file == NULL)
+                {
+
+                    if (errno == ENOENT)
+                    {
+
+                        write(event.data.fd, "HTTP/1.1 404 Not Found\r\n", 25);
+                    }
+                    else
+                    {
+                        perror("fopen");
+                    }
+
+                    if (epoll_ctl(epfd, EPOLL_CTL_DEL, event.data.fd, NULL) < 0)
+                    {
+                        perror("epoll_ctl:EPOLL_CTL_DEL");
+                        exit(EXIT_FAILURE);
+                    }
+                    shutdown(event.data.fd, SHUT_RDWR);
+                    close(event.data.fd);
+                    printf("client closed(%d)\n", event.data.fd);
+                }
+                else
+                {
+                    // Get file size
+                    fseek(file, 0, SEEK_END);
+                    unsigned long fileSize = ftell(file);
+                    printf("fileSize(%d)\n", fileSize);
+                    rewind(file);
+
+                    // Write minimal
+                    snprintf(header, sizeof(header),
+                             "HTTP/1.1 200 OK\r\n"
+                             "Content-Length: %lu\r\n"
+                             "\r\n",
+                             fileSize);
+
+                    if (write(event.data.fd, header, strlen(header)) < 0)
+                    {
+                        perror("write");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    int fileReading = 0;
+                    int writing = 0;
+
+                    do
+                    {
+
+                        fileReading = fread(buffer, 1, BUFFER_SIZE - 1, file);
+                        if (fileReading < 0)
+                        {
+                            perror("fread");
+                            exit(EXIT_FAILURE);
+                        }
+
+                        printf("fileReading: %i\n", fileReading);
+                        printf("buffer chunck: ");
+                        for (size_t i = 0; i < 5; i++)
+                        {
+                            printf("%u,", (unsigned char)buffer[i]);
+                        }
+                        printf("...\n");
+
+                        printf("writing...\n");
+                        writing = write(event.data.fd, buffer, fileReading);
+                        total = writing + total;
+                        printf("writing: %d\n", writing);
+
+                        if (writing < 0)
+                        {
+                            if (errno == ECONNRESET || errno == EBADF || errno == EPIPE)
+                            {
+                                if (epoll_ctl(epfd, EPOLL_CTL_DEL, event.data.fd, NULL) < 0)
+                                {
+                                    if (errno != EBADF)
+                                    {
+                                        perror("epoll_ctl:EPOLL_CTL_DEL");
+                                        printf("errno(%d)\n", errno);
+                                        exit(EXIT_FAILURE);
+                                    }
+                                }
+                                shutdown(event.data.fd, SHUT_RDWR);
+                                close(event.data.fd);
+                                fclose(file);
+                                file = NULL;
+                                printf("client closed(%d)\n", event.data.fd);
+                                break;
+                            }
+                            else if (errno == EAGAIN)
+                            {
+                                break;
+                            }
+                            else
+                            {
+                                perror("write");
+                                printf("errno(%d)\n", errno);
+                                exit(EXIT_FAILURE);
+                            }
+                        }
+
+                        if (writing == 0)
+                        {
+                            if (epoll_ctl(epfd, EPOLL_CTL_DEL, event.data.fd, NULL) < 0)
+                            {
+
+                                perror("epoll_ctl:EPOLL_CTL_DEL");
+                                printf("errno(%d)\n", errno);
+                                exit(EXIT_FAILURE);
+                            }
+                            shutdown(event.data.fd, SHUT_RDWR);
+                            close(event.data.fd);
+                            fclose(file);
+                            file = NULL;
+                            printf("client closed(%d)\n", event.data.fd);
+                            break;
+                        }
+                    } while (fileReading > 0);
+
+                    if (fileReading == 0 && writing != 0)
+                    {
+
+                        if (epoll_ctl(epfd, EPOLL_CTL_DEL, event.data.fd, NULL) < 0)
+                        {
+
+                            perror("epoll_ctl:EPOLL_CTL_DEL");
+                            printf("errno(%d)\n", errno);
+                            exit(EXIT_FAILURE);
+                        }
+                        shutdown(event.data.fd, SHUT_RDWR);
+                        close(event.data.fd);
+                        fclose(file);
+                        file = NULL;
+                        printf("client closed(%d)\n", event.data.fd);
+                    }
+                }
             }
         }
     }
+
+    return 0;
 }
