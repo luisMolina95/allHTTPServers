@@ -217,7 +217,7 @@ int main()
                 printf("%u,", (unsigned char)buffer[i]);
             }
             printf("...\n");
-            getchar();
+            // getchar();
 
             write(clientFD, buffer, fileReading);
 
