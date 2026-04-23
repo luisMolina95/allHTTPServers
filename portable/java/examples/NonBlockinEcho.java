@@ -74,9 +74,10 @@ public class NonBlockinEcho {
         // Bind Socket 0 backlog
         // ServerSocket socket = new ServerSocket(8080, 0, addr);
         ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.INET);
+
         server.configureBlocking(false);
         server.bind(sockaddr_in, 0);
-        System.out.println("Listening to port: " + server.socket().getLocalPort());
+        System.out.println("Server(%d)(%d)".formatted(getFD(server), server.socket().getLocalPort()));
 
         ByteBuffer buffer = ByteBuffer.allocate(4096);
 
@@ -87,7 +88,7 @@ public class NonBlockinEcho {
 
             if (client != null) {
                 client.configureBlocking(false);
-                System.out.println("client(%d)".formatted(client.socket().getPort()));
+                System.out.println("Client(%d)".formatted(client.socket().getPort()));
                 queueAdd(client);
                 printQueue();
             }
