@@ -27,7 +27,7 @@ public class NonBlockinEcho {
         return fdInt.getInt(fd);
     }
 
-    public static final int QUEUE_SIZE = 10;
+    public static final int QUEUE_SIZE = 4096;
     public static final SocketChannel[] queue = new SocketChannel[QUEUE_SIZE];
     public static int count = 0;
 
