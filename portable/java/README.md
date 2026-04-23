@@ -1,1 +1,2 @@
-https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/net/package-summary.html  
+Blocking: https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/net/package-summary.html  
+Non-Blocking: https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/nio/channels/package-summary.html  
