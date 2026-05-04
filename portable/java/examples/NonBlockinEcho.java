@@ -119,6 +119,12 @@ public class NonBlockinEcho {
                 int p = 0;
                 while (p < r) {
                     int w = c.write(buffer);
+                    if (w == -1) {
+                        c.close();
+                        queueRemove(i);
+                        printQueue();
+                        break;
+                    }
                     System.out.println("written(%d)".formatted(w));
                     p += w;
                 }
