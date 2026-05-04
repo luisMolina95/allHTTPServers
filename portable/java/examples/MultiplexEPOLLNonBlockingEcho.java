@@ -16,6 +16,8 @@ import java.lang.reflect.Field;
 
 public class MultiplexEPOLLNonBlockingEcho {
 
+    public static final int BUFFER_SIZE = 4096;
+
     static int getFD(Object ch) throws Exception {
         Field fdField = ch.getClass().getDeclaredField("fd");
         fdField.setAccessible(true);
@@ -46,7 +48,7 @@ public class MultiplexEPOLLNonBlockingEcho {
 
         server.register(selector, SelectionKey.OP_ACCEPT);
 
-        ByteBuffer buffer = ByteBuffer.allocate(4096);
+        ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
         int r = 0;
         while (true) {
 
@@ -69,7 +71,7 @@ public class MultiplexEPOLLNonBlockingEcho {
 
                     SocketChannel cr = ((SocketChannel) key.channel());
                     buffer.position(0);
-                    buffer.limit(4096);
+                    buffer.limit(BUFFER_SIZE);
                     r = cr.read(buffer);
 
                     if (r == -1) {
@@ -77,6 +79,7 @@ public class MultiplexEPOLLNonBlockingEcho {
                         key.cancel();
                         continue;
                     }
+                    System.out.println("read(%d)".formatted(r));
                     cr.register(selector, SelectionKey.OP_WRITE);
                     buffer.position(0);
                     buffer.limit(r);
